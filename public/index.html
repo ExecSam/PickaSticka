@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PickaSticka</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Sticker stash</p>
+          <h1 id="page-title">PickaSticka</h1>
+          <p class="intro">Drop, paste, upload, then click any sticker to copy it for Teams, Discord, and wherever else chaos is required.</p>
+        </div>
+        <form class="upload-panel" id="upload-form">
+          <label class="drop-zone" id="drop-zone">
+            <input id="file-input" type="file" name="stickers" accept=".jpg,.jpeg,.png,.gif,.webp,.zip,image/*,application/zip" multiple>
+            <span class="drop-title">Drop stickers or a zip</span>
+            <span class="drop-copy">Paste from clipboard anywhere on this page, too.</span>
+          </label>
+          <div class="actions">
+            <button type="button" id="pick-files">Choose files</button>
+            <button type="submit" id="upload-button">Upload</button>
+          </div>
+          <p class="status" id="status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="toolbar" aria-label="Sticker controls">
+        <div>
+          <strong id="sticker-count">0 stickers</strong>
+          <span>Sorted by copy count</span>
+        </div>
+        <input id="search" type="search" placeholder="Find a sticker">
+      </section>
+
+      <section class="sticker-grid" id="sticker-grid" aria-label="Saved stickers"></section>
+      <section class="empty-state" id="empty-state">
+        <h2>No stickers yet</h2>
+        <p>Upload JPEGs, PNGs, GIFs, WEBPs, or a zip full of them.</p>
+      </section>
+    </main>
+
+    <template id="sticker-card-template">
+      <button class="sticker-card" type="button">
+        <span class="sticker-art-wrap">
+          <img class="sticker-art" alt="">
+        </span>
+        <span class="sticker-meta">
+          <span class="sticker-name"></span>
+          <span class="copy-count"></span>
+        </span>
+      </button>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

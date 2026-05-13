@@ -1,0 +1,24 @@
+[Unit]
+Description=PickaSticka sticker clipboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pickasticka
+Environment=NODE_ENV=production
+Environment=PORT=6767
+Environment=PICKASTICKA_DATA_DIR=/opt/pickasticka/data
+ExecStart=/usr/bin/node /opt/pickasticka/server.js
+Restart=on-failure
+RestartSec=5
+User=pickasticka
+Group=pickasticka
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/pickasticka/data
+
+[Install]
+WantedBy=multi-user.target

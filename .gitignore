@@ -1,0 +1,9 @@
+node_modules/
+data/*.sqlite
+data/*.sqlite-*
+data/stickers/*
+!data/stickers/.gitkeep
+data/tmp/*
+!data/tmp/.gitkeep
+.env
+npm-debug.log*
