@@ -7,7 +7,12 @@ SERVICE_NAME="${SERVICE_NAME:-pickasticka}"
 cd "$APP_DIR"
 
 git pull --ff-only
-npm ci --omit=dev
+
+if [[ -f package-lock.json ]]; then
+  npm ci --omit=dev
+else
+  npm install --omit=dev
+fi
 
 sudo systemctl daemon-reload
 sudo systemctl restart "$SERVICE_NAME"

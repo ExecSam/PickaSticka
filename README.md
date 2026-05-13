@@ -31,7 +31,7 @@ sudo useradd --system --home /opt/pickasticka --shell /usr/sbin/nologin pickasti
 sudo mkdir -p /opt/pickasticka
 sudo chown -R pickasticka:pickasticka /opt/pickasticka
 cd /opt/pickasticka
-npm ci --omit=dev
+if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 sudo cp systemd/pickasticka.service /etc/systemd/system/pickasticka.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now pickasticka
