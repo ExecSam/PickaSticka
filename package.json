@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test"
   },
   "keywords": [
     "stickers",
@@ -19,6 +20,7 @@
     "better-sqlite3": "^12.4.6",
     "express": "^5.1.0",
     "multer": "^2.0.2",
+    "sharp": "^0.35.1",
     "unzipper": "^0.12.3"
   }
 }

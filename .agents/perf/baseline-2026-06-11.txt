@@ -1,0 +1,51 @@
+PickaSticka image loading baseline
+Date: 2026-06-11
+Mode: profile
+Runtime: Node/Express static frontend
+
+Dataset:
+- Temporary benchmark data directory, not the real repo data directory.
+- 120 valid PNG sticker originals.
+- Total original image bytes: 26,943,921.
+- Average original image bytes: 224,533.
+
+Measured against current app on http://127.0.0.1:6877.
+
+GET /api/stickers:
+- runs: 5
+- min: 1.506 ms
+- median: 1.818 ms
+- max: 46.875 ms
+- avg: 10.954 ms
+- response bytes: 23,208
+- cache-control: none
+
+Fetch first 24 original images with concurrency 6:
+- runs: 3
+- min: 16.618 ms
+- median: 20.477 ms
+- max: 29.147 ms
+- avg: 22.081 ms
+- transferred bytes: 5,388,952
+
+Fetch all 120 original images with concurrency 6:
+- runs: 3
+- min: 76.322 ms
+- median: 78.316 ms
+- max: 84.128 ms
+- avg: 79.589 ms
+- transferred bytes: 26,943,921
+
+Representative sticker response headers:
+- cache-control: public, max-age=2592000, immutable
+- content-type: image/png
+- content-length: 224,569
+
+Static app asset headers:
+- /: public, max-age=0
+- /styles.css: public, max-age=0
+- /app.js: public, max-age=0
+
+Notes:
+- Localhost timing is not representative of remote latency or throughput.
+- Byte volume and request fan-out are the primary baseline signals.

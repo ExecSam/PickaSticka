@@ -7,17 +7,22 @@ const stream = require("node:stream/promises");
 const Database = require("better-sqlite3");
 const express = require("express");
 const multer = require("multer");
+const sharp = require("sharp");
 const unzipper = require("unzipper");
 
 const PORT = Number(process.env.PORT || 6767);
 const ROOT = __dirname;
 const DATA_DIR = process.env.PICKASTICKA_DATA_DIR || path.join(ROOT, "data");
 const STICKER_DIR = process.env.PICKASTICKA_STICKER_DIR || path.join(DATA_DIR, "stickers");
+const THUMB_DIR = process.env.PICKASTICKA_THUMB_DIR || path.join(DATA_DIR, "thumbs");
 const TMP_DIR = path.join(DATA_DIR, "tmp");
 const DB_PATH = process.env.PICKASTICKA_DB_PATH || path.join(DATA_DIR, "pickasticka.sqlite");
 
 const MAX_FILE_SIZE = Number(process.env.PICKASTICKA_MAX_FILE_SIZE || 50 * 1024 * 1024);
 const MAX_ZIP_SIZE = Number(process.env.PICKASTICKA_MAX_ZIP_SIZE || 500 * 1024 * 1024);
+const THUMBNAIL_SIZE = Number(process.env.PICKASTICKA_THUMBNAIL_SIZE || 320);
+const STATIC_ASSET_MAX_AGE = "1h";
+const STATIC_IMAGE_MAX_AGE = "30d";
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 const ZIP_EXTENSION = ".zip";
 
@@ -31,6 +36,7 @@ const upload = multer({
 const app = express();
 
 fs.mkdirSync(STICKER_DIR, { recursive: true });
+fs.mkdirSync(THUMB_DIR, { recursive: true });
 fs.mkdirSync(TMP_DIR, { recursive: true });
 
 const db = new Database(DB_PATH);
@@ -39,6 +45,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS stickers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL UNIQUE,
+    thumbnail_filename TEXT,
     original_name TEXT NOT NULL,
     mime_type TEXT NOT NULL,
     size INTEGER NOT NULL,
@@ -50,18 +57,30 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_stickers_usage
   ON stickers(copy_count DESC, updated_at DESC);
 `);
+ensureColumn("stickers", "thumbnail_filename", "TEXT");
 
 const insertSticker = db.prepare(`
-  INSERT INTO stickers (filename, original_name, mime_type, size)
-  VALUES (@filename, @originalName, @mimeType, @size)
+  INSERT INTO stickers (filename, thumbnail_filename, original_name, mime_type, size)
+  VALUES (@filename, @thumbnailFilename, @originalName, @mimeType, @size)
 `);
 const listStickers = db.prepare(`
-  SELECT id, filename, original_name AS originalName, mime_type AS mimeType,
+  SELECT id, filename, thumbnail_filename AS thumbnailFilename,
+    original_name AS originalName, mime_type AS mimeType,
     size, copy_count AS copyCount, created_at AS createdAt, updated_at AS updatedAt
   FROM stickers
   ORDER BY copy_count DESC, updated_at DESC, id DESC
 `);
 const getSticker = db.prepare("SELECT * FROM stickers WHERE id = ?");
+const listStickerFiles = db.prepare(`
+  SELECT id, filename, thumbnail_filename AS thumbnailFilename
+  FROM stickers
+  ORDER BY id ASC
+`);
+const setStickerThumbnail = db.prepare(`
+  UPDATE stickers
+  SET thumbnail_filename = ?
+  WHERE id = ?
+`);
 const incrementCopy = db.prepare(`
   UPDATE stickers
   SET copy_count = copy_count + 1, updated_at = CURRENT_TIMESTAMP
@@ -69,10 +88,22 @@ const incrementCopy = db.prepare(`
 `);
 
 app.disable("x-powered-by");
-app.use(express.static(path.join(ROOT, "public")));
+app.use(express.static(path.join(ROOT, "public"), {
+  maxAge: STATIC_ASSET_MAX_AGE,
+  setHeaders(res, filePath) {
+    const basename = path.basename(filePath);
+    if (basename === "index.html" || basename === "sw.js") {
+      res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+    }
+  }
+}));
 app.use("/stickers", express.static(STICKER_DIR, {
   immutable: true,
-  maxAge: "30d"
+  maxAge: STATIC_IMAGE_MAX_AGE
+}));
+app.use("/thumbs", express.static(THUMB_DIR, {
+  immutable: true,
+  maxAge: STATIC_IMAGE_MAX_AGE
 }));
 
 app.get("/api/health", (_req, res) => {
@@ -145,8 +176,9 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: "Something went wrong while handling that request." });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`PickaSticka is running on http://0.0.0.0:${PORT}`);
+start().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
 });
 
 async function importZip(zipPath) {
@@ -185,12 +217,16 @@ async function importZip(zipPath) {
 async function persistStickerFile(sourcePath, originalName, mimeType, size) {
   const extension = path.extname(originalName).toLowerCase();
   const filename = `${Date.now()}-${crypto.randomUUID()}${extension}`;
+  const thumbnailFilename = thumbnailFilenameFor(filename);
   const destination = path.join(STICKER_DIR, filename);
+  const thumbnailDestination = path.join(THUMB_DIR, thumbnailFilename);
 
   await fsp.rename(sourcePath, destination);
+  await generateThumbnail(destination, thumbnailDestination);
 
   const result = insertSticker.run({
     filename,
+    thumbnailFilename,
     originalName: cleanOriginalName(originalName),
     mimeType: mimeType || mimeFromExtension(extension),
     size
@@ -199,6 +235,7 @@ async function persistStickerFile(sourcePath, originalName, mimeType, size) {
   return {
     id: result.lastInsertRowid,
     filename,
+    thumbnailFilename,
     originalName: cleanOriginalName(originalName),
     mimeType: mimeType || mimeFromExtension(extension),
     size
@@ -211,6 +248,85 @@ async function removeTmp(filePath) {
 
 function cleanOriginalName(name) {
   return path.basename(name).replace(/[^\w.\- ()[\]]/g, "_").slice(0, 180) || "sticker";
+}
+
+async function start() {
+  await backfillMissingThumbnails();
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`PickaSticka is running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+async function backfillMissingThumbnails() {
+  for (const sticker of listStickerFiles.all()) {
+    const thumbnailFilename = sticker.thumbnailFilename || thumbnailFilenameFor(sticker.filename);
+    const sourcePath = path.join(STICKER_DIR, sticker.filename);
+    const thumbnailPath = path.join(THUMB_DIR, thumbnailFilename);
+
+    try {
+      if (!(await fileExists(sourcePath))) {
+        continue;
+      }
+
+      if (!(await fileExists(thumbnailPath))) {
+        await generateThumbnail(sourcePath, thumbnailPath);
+      }
+
+      if (sticker.thumbnailFilename !== thumbnailFilename) {
+        setStickerThumbnail.run(thumbnailFilename, sticker.id);
+      }
+    } catch (error) {
+      console.error(`Could not create thumbnail for ${sticker.filename}:`, error.message);
+    }
+  }
+}
+
+async function generateThumbnail(sourcePath, destinationPath) {
+  const tempPath = `${destinationPath}.${crypto.randomUUID()}.tmp`;
+
+  try {
+    await sharp(sourcePath, { animated: true })
+      .rotate()
+      .resize({
+        width: THUMBNAIL_SIZE,
+        height: THUMBNAIL_SIZE,
+        fit: "inside",
+        withoutEnlargement: true
+      })
+      .webp({
+        quality: 72,
+        effort: 4
+      })
+      .toFile(tempPath);
+
+    await fsp.rename(tempPath, destinationPath);
+  } catch (error) {
+    await fsp.rm(tempPath, { force: true });
+    throw error;
+  }
+}
+
+async function fileExists(filePath) {
+  try {
+    await fsp.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function thumbnailFilenameFor(filename) {
+  return `${path.parse(filename).name}-thumb.webp`;
+}
+
+function ensureColumn(tableName, columnName, columnType) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (columns.some((column) => column.name === columnName)) {
+    return;
+  }
+
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
 }
 
 function mimeFromExtension(extension) {

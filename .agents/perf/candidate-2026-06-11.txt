@@ -1,0 +1,49 @@
+PickaSticka image loading candidate
+Date: 2026-06-11
+Mode: optimize
+Runtime: Node/Express static frontend
+
+Dataset:
+- Temporary benchmark data directory, not the real repo data directory.
+- 120 valid PNG sticker originals.
+- Total original image bytes: 26,943,921.
+- Existing-style database rows were inserted without thumbnail filenames so startup backfill was measured.
+
+Startup:
+- Backfilled 120 thumbnails before health became available.
+- Startup time including thumbnail generation: 1,666.546 ms.
+
+GET /api/stickers:
+- runs: 5
+- min: 0.864 ms
+- median: 1.290 ms
+- max: 2.979 ms
+- avg: 1.470 ms
+- response bytes: 28,248
+- cache-control: none
+
+Fetch first 24 thumbnails with concurrency 6:
+- runs: 3
+- min: 7.971 ms
+- median: 9.401 ms
+- max: 15.344 ms
+- avg: 10.905 ms
+- transferred bytes: 969,586
+
+Fetch all 120 thumbnails with concurrency 6:
+- runs: 3
+- min: 27.560 ms
+- median: 31.968 ms
+- max: 32.049 ms
+- avg: 30.526 ms
+- transferred bytes: 4,849,322
+
+Representative thumbnail response headers:
+- cache-control: public, max-age=2592000, immutable
+- content-type: image/webp
+- content-length: 40,452
+
+Representative original response headers:
+- cache-control: public, max-age=2592000, immutable
+- content-type: image/png
+- content-length: 224,569

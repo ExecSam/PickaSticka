@@ -9,8 +9,13 @@ const dropZone = document.querySelector("#drop-zone");
 const search = document.querySelector("#search");
 const stickerCount = document.querySelector("#sticker-count");
 
+const EAGER_IMAGE_COUNT = 12;
+const HIGH_PRIORITY_IMAGE_COUNT = 8;
+const THUMBNAIL_DIMENSION = 320;
+
 let stickers = [];
 
+registerImageCache();
 loadStickers();
 
 pickFiles.addEventListener("click", () => fileInput.click());
@@ -52,7 +57,7 @@ document.addEventListener("paste", async (event) => {
   await uploadFiles(files, "Pasted sticker saved.");
 });
 
-search.addEventListener("input", renderStickers);
+search.addEventListener("input", scheduleRender);
 
 async function loadStickers() {
   const response = await fetch("/api/stickers");
@@ -102,13 +107,18 @@ function renderStickers() {
   emptyState.hidden = visible.length !== 0;
   stickerCount.textContent = `${stickers.length} sticker${stickers.length === 1 ? "" : "s"}`;
 
-  for (const sticker of visible) {
+  for (const [index, sticker] of visible.entries()) {
     const card = template.content.firstElementChild.cloneNode(true);
     const img = card.querySelector(".sticker-art");
     const name = card.querySelector(".sticker-name");
     const count = card.querySelector(".copy-count");
 
-    img.src = `/stickers/${encodeURIComponent(sticker.filename)}`;
+    img.width = THUMBNAIL_DIMENSION;
+    img.height = THUMBNAIL_DIMENSION;
+    img.decoding = "async";
+    img.loading = index < EAGER_IMAGE_COUNT ? "eager" : "lazy";
+    img.fetchPriority = index < HIGH_PRIORITY_IMAGE_COUNT ? "high" : "low";
+    img.src = imagePreviewUrl(sticker);
     img.alt = sticker.originalName;
     name.textContent = sticker.originalName;
     count.textContent = `${sticker.copyCount} copied`;
@@ -117,6 +127,24 @@ function renderStickers() {
 
     grid.append(card);
   }
+}
+
+function scheduleRender() {
+  if (!window.requestAnimationFrame) {
+    renderStickers();
+    return;
+  }
+
+  window.cancelAnimationFrame?.(scheduleRender.frame);
+  scheduleRender.frame = window.requestAnimationFrame(renderStickers);
+}
+
+function imagePreviewUrl(sticker) {
+  if (sticker.thumbnailFilename) {
+    return `/thumbs/${encodeURIComponent(sticker.thumbnailFilename)}`;
+  }
+
+  return `/stickers/${encodeURIComponent(sticker.filename)}`;
 }
 
 async function copySticker(sticker) {
@@ -133,7 +161,7 @@ async function copySticker(sticker) {
         new ClipboardItem({ [blob.type]: blob })
       ]);
     } else {
-      await navigator.clipboard.writeText(new URL(`/stickers/${sticker.filename}`, window.location.origin).href);
+      await navigator.clipboard.writeText(new URL(`/stickers/${encodeURIComponent(sticker.filename)}`, window.location.origin).href);
     }
 
     const countResponse = await fetch(`/api/stickers/${sticker.id}/copy`, { method: "POST" });
@@ -145,6 +173,16 @@ async function copySticker(sticker) {
   } catch (error) {
     statusEl.textContent = `Could not copy: ${error.message}`;
   }
+}
+
+function registerImageCache() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
 }
 
 function canWriteMime(mimeType) {
